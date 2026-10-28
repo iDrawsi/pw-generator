@@ -1,0 +1,18 @@
+# Dépendances et sorties
+node_modules/
+*.log
+
+# Secrets : ne jamais versionner
+.env
+.env.*
+*.key
+*.pem
+passwords*.txt
+mdp*.txt
+
+# Système / éditeurs
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/

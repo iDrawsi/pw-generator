@@ -1,0 +1,425 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- Aucune connexion réseau possible : tout est bloqué par la CSP -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<title>Générateur de mots de passe</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #fff; --text: #1b1f27; --muted: #6a7280; --line: #dde1e8;
+    --accent: #2f6fed; --accent-text: #fff; --mono-bg: #f0f2f6;
+    --s0: #d64545; --s1: #e08a1e; --s2: #c9b200; --s3: #3aa655; --s4: #1f8f6b;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #12151b; --card: #1b1f27; --text: #e8ebf0; --muted: #98a1b0; --line: #2d333f;
+      --accent: #5b8ef5; --accent-text: #0b0f17; --mono-bg: #12151b;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  main { max-width: 720px; margin: 0 auto; padding: 24px 16px 48px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  .sub { color: var(--muted); margin: 0 0 20px; font-size: 13px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px; margin-bottom: 16px; }
+  .out { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
+  .pw {
+    flex: 1; min-width: 0; font: 16px/1.4 ui-monospace, Consolas, monospace; background: var(--mono-bg);
+    border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; word-break: break-all; user-select: all;
+  }
+  button {
+    font: inherit; cursor: pointer; border-radius: 8px; border: 1px solid var(--line);
+    background: var(--card); color: var(--text); padding: 8px 14px;
+  }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); font-weight: 600; }
+  .meter { height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; margin: 12px 0 6px; }
+  .meter > div { height: 100%; width: 0; transition: width .2s, background .2s; }
+  .info { display: flex; justify-content: space-between; color: var(--muted); font-size: 13px; flex-wrap: wrap; gap: 4px; }
+  .row { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; flex-wrap: wrap; }
+  .row label.lbl { width: 130px; font-weight: 600; }
+  input[type=range] { flex: 1; min-width: 140px; accent-color: var(--accent); }
+  input[type=number], input[type=text] {
+    font: inherit; background: var(--card); color: var(--text); border: 1px solid var(--line);
+    border-radius: 8px; padding: 6px 8px;
+  }
+  input[type=number] { width: 72px; }
+  input[type=text] { flex: 1; min-width: 160px; font-family: ui-monospace, Consolas, monospace; }
+  .checks { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 8px 16px; margin-bottom: 14px; }
+  .checks label { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+  input[type=checkbox] { accent-color: var(--accent); width: 16px; height: 16px; }
+  .err { color: var(--s0); min-height: 20px; font-size: 13px; }
+  .list .out:last-child { margin-bottom: 0; }
+  .note { color: var(--muted); font-size: 12.5px; }
+  .toast { color: var(--s3); font-size: 13px; min-height: 18px; }
+  hr { border: 0; border-top: 1px solid var(--line); margin: 14px 0; }
+  [hidden] { display: none !important; }
+  select {
+    font: inherit; background: var(--card); color: var(--text); border: 1px solid var(--line);
+    border-radius: 8px; padding: 6px 8px; flex: 1; min-width: 200px;
+  }
+</style>
+</head>
+<body>
+<main>
+  <h1>Générateur de mots de passe</h1>
+  <p class="sub">100 % local : aucune requête réseau (bloquée par la CSP), aucun stockage, aléa cryptographique du navigateur.</p>
+
+  <div class="card">
+    <div class="list" id="list"></div>
+    <div class="meter"><div id="bar"></div></div>
+    <div class="info"><span id="strength">—</span><span id="entropy">—</span></div>
+    <div class="err" id="err"></div>
+  </div>
+
+  <div class="card">
+    <div class="row">
+      <label class="lbl" for="mode">Mode</label>
+      <select id="mode">
+        <option value="pw">Mot de passe (caractères)</option>
+        <option value="pp">Phrase de passe (mots)</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="card" id="panelPp" hidden>
+    <div class="row">
+      <label class="lbl" for="words">Nombre de mots</label>
+      <input type="range" id="wordsR" min="3" max="12" value="6" aria-label="Nombre de mots">
+      <input type="number" id="words" min="3" max="20" value="6">
+    </div>
+    <div class="row">
+      <label class="lbl" for="lang">Langue</label>
+      <select id="lang">
+        <option value="mix">Français + anglais mélangés</option>
+        <option value="fr">Français</option>
+        <option value="en">Anglais (EFF)</option>
+      </select>
+    </div>
+    <div class="row">
+      <label class="lbl" for="sep">Séparateur</label>
+      <input type="text" id="sep" value="-" maxlength="3" spellcheck="false" autocomplete="off">
+    </div>
+    <div class="row">
+      <label class="lbl" for="ppCount">Quantité</label>
+      <input type="number" id="ppCount" min="1" max="20" value="1">
+    </div>
+    <div class="checks">
+      <label><input type="checkbox" id="cap"> Majuscule à chaque mot</label>
+      <label><input type="checkbox" id="ppDigit"> Ajouter un chiffre</label>
+      <label><input type="checkbox" id="ppSym"> Ajouter un symbole</label>
+    </div>
+    <p class="note" id="ppInfo"></p>
+  </div>
+
+  <div class="card" id="panelPw">
+    <div class="row">
+      <label class="lbl" for="len">Longueur</label>
+      <input type="range" id="lenR" min="4" max="128" value="20" aria-label="Longueur">
+      <input type="number" id="len" min="4" max="512" value="20">
+    </div>
+    <div class="row">
+      <label class="lbl" for="count">Quantité</label>
+      <input type="number" id="count" min="1" max="20" value="1">
+    </div>
+
+    <div class="checks">
+      <label><input type="checkbox" id="lower" checked> Minuscules (a–z)</label>
+      <label><input type="checkbox" id="upper" checked> Majuscules (A–Z)</label>
+      <label><input type="checkbox" id="digits" checked> Chiffres (0–9)</label>
+      <label><input type="checkbox" id="symbols" checked> Symboles</label>
+    </div>
+    <div class="row">
+      <label class="lbl" for="symset">Symboles utilisés</label>
+      <input type="text" id="symset" value="!@#$%^&*()-_=+[]{};:,.?/~" spellcheck="false" autocomplete="off">
+    </div>
+    <div class="row">
+      <label class="lbl" for="extra">Caractères en plus</label>
+      <input type="text" id="extra" placeholder="ex : éèàç" spellcheck="false" autocomplete="off">
+    </div>
+    <div class="row">
+      <label class="lbl" for="excl">Caractères exclus</label>
+      <input type="text" id="excl" placeholder="ex : &quot;'\" spellcheck="false" autocomplete="off">
+    </div>
+
+    <div class="checks">
+      <label><input type="checkbox" id="ambig"> Exclure les ambigus (I l 1 O 0 o |)</label>
+      <label><input type="checkbox" id="each" checked> Au moins un de chaque type</label>
+      <label><input type="checkbox" id="norep"> Aucun caractère répété</label>
+      <label><input type="checkbox" id="noadj"> Pas deux identiques à la suite</label>
+      <label><input type="checkbox" id="noStart"> Commencer par une lettre</label>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="checks">
+      <label><input type="checkbox" id="autoClear" checked> Vider le presse-papiers après 30 s</label>
+    </div>
+    <button class="primary" id="gen">Générer</button>
+    <span class="toast" id="toast"></span>
+  </div>
+
+  <p class="note">
+    Chaque caractère est tiré avec <code>crypto.getRandomValues</code> par échantillonnage avec rejet (sans biais de modulo),
+    puis les positions sont mélangées (Fisher-Yates). L'entropie affichée est une estimation (longueur × log₂ de la taille du jeu) ;
+    les options « sans répétition » ou « un de chaque » la réduisent légèrement.
+    Phrases de passe : mots tirés de la liste EFF « large » (anglais) et de la liste française Diceware de C.-M. Duquesne (CC-BY-3.0, filtrée) ;
+    en mode mélangé, les deux listes sont fusionnées et chaque mot est tiré uniformément.
+    Les mots de passe ne sont ni enregistrés ni envoyés : ils disparaissent à la fermeture de la page.
+  </p>
+</main>
+
+<script>
+"use strict";
+// ---- CORE-START ----
+const SETS = {
+  lower: "abcdefghijklmnopqrstuvwxyz",
+  upper: "ABCDEFGHIJKLMNOPQRSTUVWXYZ",
+  digits: "0123456789",
+};
+const AMBIGUOUS = "Il1O0o|";
+
+// Entier uniforme dans [0, max) – échantillonnage avec rejet pour éviter le biais du modulo.
+function randInt(max) {
+  if (!Number.isInteger(max) || max <= 0 || max > 2 ** 32) throw new RangeError("max invalide");
+  const buf = new Uint32Array(1);
+  const limit = Math.floor(2 ** 32 / max) * max;
+  do { crypto.getRandomValues(buf); } while (buf[0] >= limit);
+  return buf[0] % max;
+}
+
+const uniq = (s) => Array.from(new Set(Array.from(s)));
+const pick = (arr) => arr[randInt(arr.length)];
+
+function shuffle(arr) {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = randInt(i + 1);
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
+// opts : {length, lower, upper, digits, symbols, symset, extra, excl, ambig, each, norep, noadj, startLetter}
+// Retourne {password, poolSize} ou lève une Error avec un message lisible.
+function generate(o) {
+  const banned = new Set(Array.from(o.excl || ""));
+  if (o.ambig) for (const c of AMBIGUOUS) banned.add(c);
+  const clean = (s) => uniq(s).filter((c) => !banned.has(c));
+
+  const pools = [];
+  if (o.lower) pools.push(clean(SETS.lower));
+  if (o.upper) pools.push(clean(SETS.upper));
+  if (o.digits) pools.push(clean(SETS.digits));
+  if (o.symbols) pools.push(clean(o.symset || ""));
+  const extra = clean(o.extra || "");
+  if (extra.length) pools.push(extra);
+
+  const active = pools.filter((p) => p.length);
+  if (!active.length) throw new Error("Aucun caractère disponible : activez un type ou assouplissez les exclusions.");
+
+  const all = uniq(active.flat().join(""));
+  const L = o.length;
+  if (!Number.isInteger(L) || L < 1) throw new Error("Longueur invalide.");
+  if (o.each && L < active.length) throw new Error(`Longueur minimale ${active.length} pour avoir un caractère de chaque type.`);
+  if (o.norep && L > all.length) throw new Error(`Sans répétition, la longueur maximale est ${all.length}.`);
+  if (o.startLetter && !all.some((c) => /\p{L}/u.test(c))) throw new Error("Aucune lettre disponible pour commencer.");
+
+  for (let attempt = 0; attempt < 1000; attempt++) {
+    const out = [];
+    const used = new Set();
+    const take = (pool) => {
+      const cand = o.norep ? pool.filter((c) => !used.has(c)) : pool;
+      if (!cand.length) return null;
+      const c = pick(cand);
+      used.add(c);
+      return c;
+    };
+    let ok = true;
+    if (o.each) {
+      for (const p of active) { const c = take(p); if (c === null) { ok = false; break; } out.push(c); }
+    }
+    while (ok && out.length < L) {
+      const c = take(all);
+      if (c === null) { ok = false; break; }
+      out.push(c);
+    }
+    if (!ok) continue;
+    shuffle(out);
+    if (o.startLetter && !/\p{L}/u.test(out[0])) {
+      const idx = out.findIndex((c) => /\p{L}/u.test(c));
+      if (idx < 0) continue;
+      [out[0], out[idx]] = [out[idx], out[0]];
+    }
+    if (o.noadj && out.some((c, i) => i > 0 && c === out[i - 1])) continue;
+    return { password: out.join(""), poolSize: all.length };
+  }
+  throw new Error("Impossible de satisfaire toutes les contraintes avec ces paramètres.");
+}
+
+const entropyBits = (len, pool) => len * Math.log2(pool);
+
+// Listes de mots injectées au build (EFF large + liste française de Duquesne filtrée).
+const WORDLISTS = /*WORDLISTS*/{ en: [], fr: [] }/*END*/;
+
+// "mix" = union dédoublonnée des deux listes : chaque mot est tiré uniformément,
+// donc la langue de chaque mot est tirée au sort sans biais et l'entropie vaut log2(taille).
+function wordPool(lang, lists = WORDLISTS) {
+  if (lang === "en") return lists.en;
+  if (lang === "fr") return lists.fr;
+  return Array.from(new Set([...lists.en, ...lists.fr]));
+}
+
+// opts : {words, lang, sep, cap, digit, symbol, symset}
+// Retourne {password, bits, poolSize}.
+function generatePassphrase(o, lists = WORDLISTS) {
+  const pool = wordPool(o.lang, lists);
+  const n = o.words;
+  if (!pool.length) throw new Error("Liste de mots vide.");
+  if (!Number.isInteger(n) || n < 1) throw new Error("Nombre de mots invalide.");
+  const parts = [];
+  for (let i = 0; i < n; i++) {
+    let w = pool[randInt(pool.length)];
+    if (o.cap) w = w.charAt(0).toUpperCase() + w.slice(1);
+    parts.push(w);
+  }
+  let bits = n * Math.log2(pool.length);
+  if (o.digit) {
+    parts[randInt(n)] += String(randInt(10));
+    bits += Math.log2(n * 10);
+  }
+  if (o.symbol) {
+    const syms = uniq(o.symset || "");
+    if (!syms.length) throw new Error("Aucun symbole disponible (voir le mode mot de passe).");
+    parts[randInt(n)] += pick(syms);
+    bits += Math.log2(n * syms.length);
+  }
+  return { password: parts.join(o.sep), bits, poolSize: pool.length };
+}
+// ---- CORE-END ----
+
+// ---- UI ----
+const $ = (id) => document.getElementById(id);
+const ids = ["len", "count", "lower", "upper", "digits", "symbols", "symset", "extra", "excl", "ambig", "each", "norep", "noadj", "noStart"];
+let clearTimer = null;
+
+function readOpts() {
+  return {
+    length: parseInt($("len").value, 10),
+    lower: $("lower").checked, upper: $("upper").checked, digits: $("digits").checked,
+    symbols: $("symbols").checked, symset: $("symset").value,
+    extra: $("extra").value, excl: $("excl").value,
+    ambig: $("ambig").checked, each: $("each").checked,
+    norep: $("norep").checked, noadj: $("noadj").checked, startLetter: $("noStart").checked,
+  };
+}
+
+function readPpOpts() {
+  return {
+    words: parseInt($("words").value, 10),
+    lang: $("lang").value, sep: $("sep").value,
+    cap: $("cap").checked, digit: $("ppDigit").checked, symbol: $("ppSym").checked,
+    symset: $("symset").value,
+  };
+}
+
+function strengthOf(bits) {
+  if (bits < 40) return ["Faible", 0, "var(--s0)"];
+  if (bits < 60) return ["Moyen", 1, "var(--s1)"];
+  if (bits < 80) return ["Bon", 2, "var(--s2)"];
+  if (bits < 112) return ["Fort", 3, "var(--s3)"];
+  return ["Excellent", 4, "var(--s4)"];
+}
+
+function toast(msg) {
+  $("toast").textContent = msg;
+  setTimeout(() => { if ($("toast").textContent === msg) $("toast").textContent = ""; }, 2500);
+}
+
+async function copy(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    // Repli si l'API clipboard est indisponible (ex. file:// sur certains navigateurs)
+    const ta = document.createElement("textarea");
+    ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
+    document.body.appendChild(ta); ta.select();
+    const ok = document.execCommand("copy");
+    ta.remove();
+    if (!ok) { toast("Copie impossible : sélectionnez le texte à la main."); return; }
+  }
+  toast("Copié.");
+  clearTimeout(clearTimer);
+  if ($("autoClear").checked) {
+    clearTimer = setTimeout(() => { navigator.clipboard.writeText("").catch(() => {}); toast("Presse-papiers vidé."); }, 30000);
+  }
+}
+
+function render() {
+  const list = $("list");
+  list.replaceChildren();
+  $("err").textContent = "";
+  const pp = $("mode").value === "pp";
+  $("panelPp").hidden = !pp;
+  $("panelPw").hidden = pp;
+  const n = Math.min(20, Math.max(1, parseInt($(pp ? "ppCount" : "count").value, 10) || 1));
+  const o = readOpts();
+  const po = readPpOpts();
+  let pool = 0, bits = 0;
+  try {
+    for (let i = 0; i < n; i++) {
+      const r = pp ? generatePassphrase(po) : generate(o);
+      pool = r.poolSize;
+      bits = pp ? r.bits : entropyBits(o.length, pool);
+      const row = document.createElement("div");
+      row.className = "out";
+      const pw = document.createElement("div");
+      pw.className = "pw"; pw.textContent = r.password;
+      const btn = document.createElement("button");
+      btn.textContent = "Copier";
+      btn.addEventListener("click", () => copy(r.password));
+      row.append(pw, btn);
+      list.appendChild(row);
+    }
+    const [label, lvl, color] = strengthOf(bits);
+    $("bar").style.width = ((lvl + 1) / 5) * 100 + "%";
+    $("bar").style.background = color;
+    $("strength").textContent = label;
+    $("entropy").textContent = pp
+      ? `≈ ${Math.round(bits)} bits · ${pool} mots possibles`
+      : `≈ ${Math.round(bits)} bits · jeu de ${pool} caractères`;
+  } catch (e) {
+    $("err").textContent = e.message;
+    $("bar").style.width = "0";
+    $("strength").textContent = "—";
+    $("entropy").textContent = "—";
+  }
+}
+
+// Curseur <-> champ numérique
+$("lenR").addEventListener("input", () => { $("len").value = $("lenR").value; render(); });
+$("len").addEventListener("input", () => {
+  const v = parseInt($("len").value, 10);
+  if (v >= 4 && v <= 128) $("lenR").value = v;
+  render();
+});
+$("wordsR").addEventListener("input", () => { $("words").value = $("wordsR").value; render(); });
+$("words").addEventListener("input", () => {
+  const v = parseInt($("words").value, 10);
+  if (v >= 3 && v <= 12) $("wordsR").value = v;
+  render();
+});
+for (const id of ids.filter((i) => i !== "len").concat(["mode", "lang", "sep", "ppCount", "cap", "ppDigit", "ppSym"])) {
+  $(id).addEventListener("input", render);
+  $(id).addEventListener("change", render);
+}
+$("gen").addEventListener("click", render);
+render();
+</script>
+</body>
+</html>
